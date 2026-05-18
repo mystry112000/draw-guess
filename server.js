@@ -174,6 +174,7 @@ wss.on('connection', (ws) => {
         const roomId = generateRoomId()
         playerId = msg.playerId || crypto.randomUUID().slice(0, 8)
         room = createRoom(roomId, playerId)
+        rooms.set(roomId, room)
         room.players.set(playerId, { id: playerId, name: msg.name, ws, score: 0 })
         send(ws, { type: 'room_created', roomId, players: Array.from(room.players.values()).map(p => ({ id: p.id, name: p.name, score: 0 })), isHost: true })
       } else if (msg.type === 'join_room') {
