@@ -185,7 +185,6 @@
 <script>
 const WS_URL = `ws://${location.host}`
 let ws = null
-let roomId = null
 let playerId = null
 let playerName = ''
 let isHost = false
@@ -195,15 +194,34 @@ let currentTool = 'brush'
 let currentColor = '#000'
 let currentSize = 4
 let canvas, ctx
+let pendingMessage = null
 
 function connect() {
-  ws = new WebSocket(WS_URL)
-  ws.onmessage = (e) => {
-    const msg = JSON.parse(e.data)
-    handleMessage(msg)
-  }
-  ws.onclose = () => {
-    setTimeout(connect, 2000)
+  return new Promise((resolve) => {
+    if (ws && ws.readyState === 1) { resolve(); return }
+    ws = new WebSocket(`ws://${location.host}`)
+    ws.onopen = () => {
+      if (pendingMessage) {
+        ws.send(JSON.stringify(pendingMessage))
+        pendingMessage = null
+      }
+      resolve()
+    }
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data)
+      handleMessage(msg)
+    }
+    ws.onclose = () => { ws = null }
+    ws.onerror = () => { ws = null; alert('Could not connect to server'); }
+  })
+}
+
+function sendMessage(msg) {
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify(msg))
+  } else {
+    pendingMessage = msg
+    connect()
   }
 }
 
@@ -260,8 +278,7 @@ function handleMessage(msg) {
 function createRoom() {
   playerName = document.getElementById('nameInput').value.trim() || 'Anonymous'
   playerId = crypto.randomUUID().slice(0, 8)
-  ws.send(JSON.stringify({ type: 'create_room', name: playerName, playerId }))
-  connect()
+  sendMessage({ type: 'create_room', name: playerName, playerId })
 }
 
 function joinRoom() {
@@ -269,10 +286,7 @@ function joinRoom() {
   if (roomCode.length !== 4) { alert('Enter a valid 4-letter room code'); return }
   playerName = document.getElementById('nameInput').value.trim() || 'Anonymous'
   playerId = crypto.randomUUID().slice(0, 8)
-  connect()
-  setTimeout(() => {
-    ws.send(JSON.stringify({ type: 'join_room', roomId: roomCode, name: playerName, playerId }))
-  }, 500)
+  sendMessage({ type: 'join_room', roomId: roomCode, name: playerName, playerId })
 }
 
 function showWaiting(players) {
@@ -333,7 +347,7 @@ function setupCanvas() {
     ctx.strokeStyle = currentTool === 'eraser' ? '#fff' : currentColor;
     ctx.lineTo(x, y);
     ctx.stroke();
-    ws.send(JSON.stringify({ type: 'draw', stroke: { x, y, color: ctx.strokeStyle, size: currentSize } }))
+    sendMessage({ type: 'draw', stroke: { x, y, color: ctx.strokeStyle, size: currentSize } })
   }
   canvas.onmouseup = () => { isDrawing = false; }
   canvas.onmouseleave = () => { isDrawing = false; }
@@ -350,7 +364,7 @@ function setupCanvas() {
     ctx.strokeStyle = currentTool === 'eraser' ? '#fff' : currentColor;
     ctx.lineTo(x, y);
     ctx.stroke();
-    ws.send(JSON.stringify({ type: 'draw', stroke: { x, y, color: ctx.strokeStyle, size: currentSize } }))
+    sendMessage({ type: 'draw', stroke: { x, y, color: ctx.strokeStyle, size: currentSize } })
   }
   canvas.ontouchend = () => { isDrawing = false; }
 }
@@ -382,15 +396,19 @@ function clearCanvas() {
   if (!isDrawer) return
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
-  ws.send(JSON.stringify({ type: 'clear' }))
+  sendMessage({ type: 'clear' })
+}
+
+function startGame() {
+  sendMessage({ type: 'start_game' })
 }
 
 function sendChat() {
   const input = document.getElementById('chatInput')
   const text = input.value.trim()
   if (!text) return
-  ws.send(JSON.stringify({ type: 'chat', message: text }))
-  ws.send(JSON.stringify({ type: 'guess', guess: text }))
+  sendMessage({ type: 'chat', message: text })
+  sendMessage({ type: 'guess', guess: text })
   input.value = ''
 }
 
